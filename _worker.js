@@ -36,7 +36,8 @@ function parsePryAddress(serverStr) {
             };
         } catch (e) {
             // 如果 URL 解析失败，尝试解析 IP:PORT 格式
-            const simpleMatch = serverStr.replace(/^socks5?:\/\//, '').match(/^([^:]+):(\d+)$/);
+            const cleanStr = serverStr.replace(/^socks5?:\/\//, '');
+            const simpleMatch = cleanStr.match(/^([^:@]+):(\d+)$/);
             if (simpleMatch) {
                 return {
                     type: 'socks5',
@@ -84,27 +85,20 @@ function parsePryAddress(serverStr) {
 
     const lastColonIndex = serverStr.lastIndexOf(':');
     
+    // 检查是否是简单的 IP:PORT 或 域名:PORT 格式
     if (lastColonIndex > 0) {
         const host = serverStr.substring(0, lastColonIndex);
         const portStr = serverStr.substring(lastColonIndex + 1);
         const port = parseInt(portStr, 10);
         
         if (!isNaN(port) && port > 0 && port <= 65535) {
-            // 检查是否是简单的 IP:PORT 格式，可能是无认证的 SOCKS5
-            const ipPattern = /^(\d{1,3}\.){3}\d{1,3}$/;
-            if (ipPattern.test(host)) {
-                return {
-                    type: 'socks5',
-                    host: host,
-                    port: port,
-                    username: '',
-                    password: ''
-                };
-            }
+            // 对于简单的 IP:PORT 或 域名:PORT 格式，保持为 direct 类型
+            // 避免将所有 IP:PORT 都误判为 SOCKS5 代理
             return { type: 'direct', host, port };
         }
     }
     
+    // 默认返回 direct 类型
     return { type: 'direct', host: serverStr, port: 443 };
 }
 
