@@ -18,29 +18,94 @@ let cfip = [ // cfip
 let dnsResolver = 'https://sky.rethinkdns.com/1:-Pf_____9_8A_AMAIgE8kMABVDDmKOHTAKg=';
 
 // parse server address and port
-function parseServerAddress(serverStr) {
-	const defaultPort = 443; 
-	let hostname = serverStr.trim();
-	let port = defaultPort;
-	
-	if (hostname.includes('.tp')) {
-		const portMatch = hostname.match(/\.tp(\d+)\./);
-		if (portMatch) {
-			port = parseInt(portMatch[1]);
-		}
-	} else if (hostname.includes('[') && hostname.includes(']:')) {
-		port = parseInt(hostname.split(']:')[1]);
-		hostname = hostname.split(']:')[0] + ']';
-	} else if (hostname.includes(':')) {
-		const parts = hostname.split(':');
-		port = parseInt(parts[parts.length - 1]);
-		hostname = parts.slice(0, -1).join(':');
-	}
-	
-	return {
-		hostname: hostname,
-		port: port
-	};
+function parsePryAddress(serverStr) {
+    if (!serverStr) return null;
+    serverStr = serverStr.trim();
+    
+    // 解析 SOCKS5 代理 (支持无用户名密码格式)
+    if (serverStr.startsWith('socks://') || serverStr.startsWith('socks5://')) {
+        const urlStr = serverStr.replace(/^socks:\/\//, 'socks5://');
+        try {
+            const url = new URL(urlStr);
+            return {
+                type: 'socks5',
+                host: url.hostname,
+                port: parseInt(url.port) || 1080,
+                username: url.username ? decodeURIComponent(url.username) : '',
+                password: url.password ? decodeURIComponent(url.password) : ''
+            };
+        } catch (e) {
+            // 如果 URL 解析失败，尝试解析 IP:PORT 格式
+            const simpleMatch = serverStr.replace(/^socks5?:\/\//, '').match(/^([^:]+):(\d+)$/);
+            if (simpleMatch) {
+                return {
+                    type: 'socks5',
+                    host: simpleMatch[1],
+                    port: parseInt(simpleMatch[2]),
+                    username: '',
+                    password: ''
+                };
+            }
+            return null;
+        }
+    }
+    
+    // 解析 HTTP 代理
+    if (serverStr.startsWith('http://') || serverStr.startsWith('https://')) {
+        try {
+            const url = new URL(serverStr);
+            return {
+                type: 'http',
+                host: url.hostname,
+                port: parseInt(url.port) || (serverStr.startsWith('https://') ? 443 : 80),
+                username: url.username ? decodeURIComponent(url.username) : '',
+                password: url.password ? decodeURIComponent(url.password) : ''
+            };
+        } catch (e) {
+            return null;
+        }
+    }
+    
+    // 处理 IPv6 地址格式 [host]:port
+    if (serverStr.startsWith('[')) {
+        const closeBracket = serverStr.indexOf(']');
+        if (closeBracket > 0) {
+            const host = serverStr.substring(1, closeBracket);
+            const rest = serverStr.substring(closeBracket + 1);
+            if (rest.startsWith(':')) {
+                const port = parseInt(rest.substring(1), 10);
+                if (!isNaN(port) && port > 0 && port <= 65535) {
+                    return { type: 'direct', host, port };
+                }
+            }
+            return { type: 'direct', host, port: 443 };
+        }
+    }
+
+    const lastColonIndex = serverStr.lastIndexOf(':');
+    
+    if (lastColonIndex > 0) {
+        const host = serverStr.substring(0, lastColonIndex);
+        const portStr = serverStr.substring(lastColonIndex + 1);
+        const port = parseInt(portStr, 10);
+        
+        if (!isNaN(port) && port > 0 && port <= 65535) {
+            // 检查是否是简单的 IP:PORT 格式，可能是无认证的 SOCKS5
+            const ipPattern = /^(\d{1,3}\.){3}\d{1,3}$/;
+            if (ipPattern.test(host)) {
+                return {
+                    type: 'socks5',
+                    host: host,
+                    port: port,
+                    username: '',
+                    password: ''
+                };
+            }
+            return { type: 'direct', host, port };
+        }
+    }
+    
+    return { type: 'direct', host: serverStr, port: 443 };
 }
 
 // resolve hostname to IP address
